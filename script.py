@@ -94,9 +94,19 @@ def summary_cleaner(x):
 data['new_text'] = data['text'].apply(lambda x:text_cleaner(x))
 data['new_summary'] = data['summary'].apply(lambda x:summary_cleaner(x))
 data['new_summary'] = data['new_summary'].apply(lambda x : '_START_ '+ x + ' _END_')
-#
-#data['text_len'] = data['new_text']
-#data['summary_len'] = 
+
+
+data['text_len'] = data['new_text'].str.split().str.len()
+data['summary_len'] = data['new_summary'].str.split().str.len()
+
+length_df = data[['text_len','summary_len']]
+length_df.hist(bins = 30)
+
+max_len_text=90
+max_len_summary=10
+
+data = data[(data['text_len']<=90)&(data['summary_len']<=10)]
+
 
 
 
