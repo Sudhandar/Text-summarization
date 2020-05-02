@@ -1,7 +1,11 @@
 import pandas as pd
 from nltk.corpus import stopwords
 import re
-from bs4 import BeautifulSoup 
+from bs4 import BeautifulSoup
+from sklearn.model_selection import train_test_split
+import numpy as np
+from keras.preprocessing.text import Tokenizer
+from keras.preprocessing.sequence import pad_sequences
 
 
 data = pd.read_csv('Reviews.csv')
@@ -107,7 +111,31 @@ max_len_summary=10
 
 data = data[(data['text_len']<=90)&(data['summary_len']<=10)]
 
+filtered = data[:100000]
 
+x_train,x_val,y_train,y_val=train_test_split(np.array(filtered['text']),np.array(filtered['summary']),test_size=0.1,random_state=0,shuffle=True)
+ 
+x_tokenizer = Tokenizer() 
+x_tokenizer.fit_on_texts(list(x_train))
+x_vocab_size = len(x_tokenizer.word_index) + 1
+x_train_seq = x_tokenizer.texts_to_sequences(x_train)
+x_train = pad_sequences(x_train_seq, maxlen=max_len_text, padding='post')
 
+def get_embeddings():
+    embeddings_index = dict()
+    with open('glove.6B.50d.txt','r',encoding='utf-8') as f:
+        for line in f:
+        	values = line.split()
+        	word = values[0]
+        	coefs = np.array(values[1:], dtype=np.float64)
+        	embeddings_index[word] = coefs
+        f.close()
+    return embeddings_index
+embeddings_index = get_embeddings()
 
+embedding_matrix = np.zeros((x_vocab_size, 50))
+for word, i in x_tokenizer.word_index.items():
+	embedding_vector = embeddings_index.get(word)
+	if embedding_vector is not None:
+		embedding_matrix[i] = embedding_vector
 
