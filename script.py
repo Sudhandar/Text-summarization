@@ -4,8 +4,14 @@ import re
 from bs4 import BeautifulSoup
 from sklearn.model_selection import train_test_split
 import numpy as np
-from keras.preprocessing.text import Tokenizer
-from keras.preprocessing.sequence import pad_sequences
+from tensorflow.python.keras.preprocessing.text import Tokenizer
+from tensorflow.python.keras.preprocessing.sequence import pad_sequences
+from attention_keras.layers.attention import AttentionLayer
+from tensorflow.python.keras.layers import Concatenate, LSTM, Embedding, Input, TimeDistributed, Dense
+from tensorflow.python.keras.models import Model
+from tensorflow.python.keras import backend as K
+from tensorflow.keras.callbacks import EarlyStopping
+
 
 
 data = pd.read_csv('Reviews.csv')
@@ -112,30 +118,103 @@ max_len_summary=10
 data = data[(data['text_len']<=90)&(data['summary_len']<=10)]
 
 filtered = data[:100000]
+ 
+        
+class embeddings():
+    def __init__(self):
+        self._embeddings_index = dict()
+        with open(r'glove\glove.6B.50d.txt','r',encoding='utf-8') as f:
+            for line in f:
+            	values = line.split()
+            	word = values[0]
+            	coefs = np.array(values[1:], dtype=np.float64)
+            	self._embeddings_index[word] = coefs
+            f.close()
+    
+    def get_embedding_matrix(self,vocab_size,tokenizer):
+        ''' Embdedding matrix for words used in the input'''
+        embedding_matrix = np.zeros((vocab_size, 50))
+        for word, i in tokenizer.word_index.items():
+        	embedding_vector = self._embeddings_index.get(word)
+        	if embedding_vector is not None:
+        		embedding_matrix[i] = embedding_vector
+                
+        return embedding_matrix
 
 x_train,x_val,y_train,y_val=train_test_split(np.array(filtered['text']),np.array(filtered['summary']),test_size=0.1,random_state=0,shuffle=True)
- 
+
+
 x_tokenizer = Tokenizer() 
 x_tokenizer.fit_on_texts(list(x_train))
-x_vocab_size = len(x_tokenizer.word_index) + 1
-x_train_seq = x_tokenizer.texts_to_sequences(x_train)
-x_train = pad_sequences(x_train_seq, maxlen=max_len_text, padding='post')
+x_tr_seq    =   x_tokenizer.texts_to_sequences(x_train) 
+x_val_seq   =   x_tokenizer.texts_to_sequences(x_val)
+x_train    =   pad_sequences(x_tr_seq,  maxlen=max_len_text, padding='post')
+x_val   =   pad_sequences(x_val_seq, maxlen=max_len_text, padding='post')
+x_vocab   =  len(x_tokenizer.word_index) + 1
 
-def get_embeddings():
-    embeddings_index = dict()
-    with open('glove.6B.50d.txt','r',encoding='utf-8') as f:
-        for line in f:
-        	values = line.split()
-        	word = values[0]
-        	coefs = np.array(values[1:], dtype=np.float64)
-        	embeddings_index[word] = coefs
-        f.close()
-    return embeddings_index
-embeddings_index = get_embeddings()
+y_tokenizer = Tokenizer()
+y_tokenizer.fit_on_texts(list(y_train))
+y_tr_seq    =   y_tokenizer.texts_to_sequences(y_train) 
+y_val_seq   =   y_tokenizer.texts_to_sequences(y_val) 
+y_train    =   pad_sequences(y_tr_seq, maxlen=max_len_summary, padding='post')
+y_val   =   pad_sequences(y_val_seq, maxlen=max_len_summary, padding='post')
+y_vocab  =   len(y_tokenizer.word_index) +1
 
-embedding_matrix = np.zeros((x_vocab_size, 50))
-for word, i in x_tokenizer.word_index.items():
-	embedding_vector = embeddings_index.get(word)
-	if embedding_vector is not None:
-		embedding_matrix[i] = embedding_vector
+e = embeddings()
+x_emb_weights = e.get_embedding_matrix(x_vocab,x_tokenizer)
+y_emb_weights = e.get_embedding_matrix(y_vocab,y_tokenizer)
 
+
+K.clear_session()
+
+latent_dim = 300
+embedding_dim=50
+
+# Encoder
+encoder_inputs = Input(shape=(max_len_text,))
+
+#embedding layer
+enc_emb =  Embedding(x_vocab, embedding_dim,weights = [x_emb_weights],trainable=False)(encoder_inputs)
+
+#encoder lstm 1
+encoder_lstm1 = LSTM(latent_dim,return_sequences=True,return_state=True,dropout=0.4,recurrent_dropout=0.4)
+encoder_output1, state_h1, state_c1 = encoder_lstm1(enc_emb)
+
+#encoder lstm 2
+encoder_lstm2 = LSTM(latent_dim,return_sequences=True,return_state=True,dropout=0.4,recurrent_dropout=0.4)
+encoder_output2, state_h2, state_c2 = encoder_lstm2(encoder_output1)
+
+#encoder lstm 3
+encoder_lstm3=LSTM(latent_dim, return_state=True, return_sequences=True,dropout=0.4,recurrent_dropout=0.4)
+encoder_outputs, state_h, state_c= encoder_lstm3(encoder_output2)
+
+# Set up the decoder, using `encoder_states` as initial state.
+decoder_inputs = Input(shape=(None,))
+
+#embedding layer
+dec_emb_layer = Embedding(y_vocab, embedding_dim,weights = [y_emb_weights],trainable=True)
+dec_emb = dec_emb_layer(decoder_inputs)
+
+decoder_lstm = LSTM(latent_dim, return_sequences=True, return_state=True,dropout=0.4,recurrent_dropout=0.2)
+decoder_outputs,decoder_fwd_state, decoder_back_state = decoder_lstm(dec_emb,initial_state=[state_h, state_c])
+
+# Attention layer
+attn_layer = AttentionLayer(name='attention_layer')
+attn_out, attn_states = attn_layer([encoder_outputs, decoder_outputs])
+
+# Concat attention input and decoder LSTM output
+decoder_concat_input = Concatenate(axis=-1, name='concat_layer')([decoder_outputs, attn_out])
+
+#dense layer
+decoder_dense =  TimeDistributed(Dense(y_vocab, activation='softmax'))
+decoder_outputs = decoder_dense(decoder_concat_input)
+
+# Define the model 
+model = Model([encoder_inputs, decoder_inputs], decoder_outputs)
+
+model.summary()
+
+model.compile(optimizer='rmsprop', loss='sparse_categorical_crossentropy')
+es = EarlyStopping(monitor='val_loss', mode='min', verbose=1,patience=2)
+
+history=model.fit([x_train,y_train[:,:-1]], y_train.reshape(y_train.shape[0],y_train.shape[1], 1)[:,1:] ,epochs=50,callbacks=[es],batch_size=128, validation_data=([x_val,y_val[:,:-1]], y_val.reshape(y_val.shape[0],y_val.shape[1], 1)[:,1:]))
