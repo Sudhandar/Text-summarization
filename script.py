@@ -87,6 +87,8 @@ def text_cleaner(x):
             long_words.append(i)   
     return (" ".join(long_words)).strip()
 
+
+
 def summary_cleaner(x):
     x = re.sub('"','', x)
     x = ' '.join([contraction_mapping[t] if t in contraction_mapping else t for t in x.split(" ")])    
@@ -218,3 +220,17 @@ model.compile(optimizer='rmsprop', loss='sparse_categorical_crossentropy')
 es = EarlyStopping(monitor='val_loss', mode='min', verbose=1,patience=2)
 
 history=model.fit([x_train,y_train[:,:-1]], y_train.reshape(y_train.shape[0],y_train.shape[1], 1)[:,1:] ,epochs=50,callbacks=[es],batch_size=128, validation_data=([x_val,y_val[:,:-1]], y_val.reshape(y_val.shape[0],y_val.shape[1], 1)[:,1:]))
+
+
+def beam_search_decoder(data, k):
+	sequences = [[list(), 1.0]]
+	for row in data:
+		all_candidates = list()
+		for i in range(len(sequences)):
+			seq, score = sequences[i]
+			for j in range(len(row)):
+				candidate = [seq + [j], score * -np.log(row[j])]
+				all_candidates.append(candidate)
+		ordered = sorted(all_candidates, key=lambda tup:tup[1])
+		sequences = ordered[:k]
+	return sequences
