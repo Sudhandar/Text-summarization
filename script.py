@@ -6,8 +6,7 @@ from sklearn.model_selection import train_test_split
 import numpy as np
 from tensorflow.python.keras.preprocessing.text import Tokenizer
 from tensorflow.python.keras.preprocessing.sequence import pad_sequences
-from attention_keras.layers.attention import AttentionLayer
-from tensorflow.python.keras.layers import Concatenate, LSTM, Embedding, Input, TimeDistributed, Dense
+from tensorflow.python.keras.layers import Concatenate, LSTM, Embedding, Input, Bidirectional, Dense
 from tensorflow.python.keras.models import Model
 from tensorflow.python.keras import backend as K
 from tensorflow.keras.callbacks import EarlyStopping
@@ -25,7 +24,6 @@ data.columns = new_columns
 data = data.drop_duplicates(subset='text')
 data = data.dropna()
 
-check = data['text'][20]
 
 contraction_mapping = {"ain't": "is not", "aren't": "are not","can't": "cannot", "'cause": "because", "could've": "could have", "couldn't": "could not",
 
@@ -103,9 +101,11 @@ def summary_cleaner(x):
     return (" ".join(long_words)).strip()
     
 
-data['new_text'] = data['text'].apply(lambda x:text_cleaner(x))
-data['new_summary'] = data['summary'].apply(lambda x:summary_cleaner(x))
-data['new_summary'] = data['new_summary'].apply(lambda x : '_START_ '+ x + ' _END_')
+data['text_clean'] = data['text'].apply(lambda x:text_cleaner(x))
+data['summary_clean'] = data['summary'].apply(lambda x:summary_cleaner(x))
+data['summary_clean_input'] = data['summary_clean'].apply(lambda x : '_START_' + x )
+data['summary_clean'] = data['summary_clean'].apply(lambda x : x + ' _END_')
+
 
 
 data['text_len'] = data['new_text'].str.split().str.len()
@@ -143,27 +143,15 @@ class embeddings():
                 
         return embedding_matrix
 
-x_train,x_val,y_train,y_val=train_test_split(np.array(filtered['text']),np.array(filtered['summary']),test_size=0.1,random_state=0,shuffle=True)
 
-
-x_tokenizer = Tokenizer() 
-x_tokenizer.fit_on_texts(list(x_train))
-x_tr_seq    =   x_tokenizer.texts_to_sequences(x_train) 
-x_val_seq   =   x_tokenizer.texts_to_sequences(x_val)
+tokenizer = Tokenizer() 
+tokenizer.fit_on_texts(list())
+x_tr_seq    =   tokenizer.texts_to_sequences(x_train) 
+x_val_seq   =   tokenizer.texts_to_sequences(x_val)
 x_train    =   pad_sequences(x_tr_seq,  maxlen=max_len_text, padding='post')
 x_val   =   pad_sequences(x_val_seq, maxlen=max_len_text, padding='post')
-x_vocab   =  len(x_tokenizer.word_index) + 1
+x_vocab   =  len(tokenizer.word_index) + 1
 
-y_tokenizer = Tokenizer()
-y_tokenizer.fit_on_texts(list(y_train))
-y_tr_seq    =   y_tokenizer.texts_to_sequences(y_train) 
-y_val_seq   =   y_tokenizer.texts_to_sequences(y_val) 
-y_train    =   pad_sequences(y_tr_seq, maxlen=max_len_summary, padding='post')
-y_val   =   pad_sequences(y_val_seq, maxlen=max_len_summary, padding='post')
-y_vocab  =   len(y_tokenizer.word_index) +1
 
-e = embeddings()
-x_emb_weights = e.get_embedding_matrix(x_vocab,x_tokenizer)
-y_emb_weights = e.get_embedding_matrix(y_vocab,y_tokenizer)
 
 
