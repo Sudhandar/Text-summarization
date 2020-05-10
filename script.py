@@ -72,6 +72,7 @@ contraction_mapping = {"ain't": "is not", "aren't": "are not","can't": "cannot",
                            "you're": "you are", "you've": "you have"}
 
 stop_words = set(stopwords.words('english'))
+
 def text_cleaner(x):
     x = x.lower()
     x = BeautifulSoup(x, "lxml").text
@@ -103,23 +104,24 @@ def summary_cleaner(x):
 
 data['text_clean'] = data['text'].apply(lambda x:text_cleaner(x))
 data['summary_clean'] = data['summary'].apply(lambda x:summary_cleaner(x))
-data['summary_clean_input'] = data['summary_clean'].apply(lambda x : '_START_' + x )
+data['summary_clean_input'] = data['summary_clean'].apply(lambda x : '_START_ ' + x )
 data['summary_clean'] = data['summary_clean'].apply(lambda x : x + ' _END_')
 
 
 
-data['text_len'] = data['new_text'].str.split().str.len()
-data['summary_len'] = data['new_summary'].str.split().str.len()
+data['text_len'] = data['text_clean'].str.split().str.len()
+data['summary_len'] = data['summary_clean'].str.split().str.len()
 
 length_df = data[['text_len','summary_len']]
 length_df.hist(bins = 30)
+#data['summary_len'].value_counts()
 
-max_len_text=90
-max_len_summary=10
+max_len_input = 90
+max_len_output = 10
 
 data = data[(data['text_len']<=90)&(data['summary_len']<=10)]
 
-filtered = data[:100000]
+filtered = data[:5000]
  
         
 class embeddings():
@@ -144,13 +146,35 @@ class embeddings():
         return embedding_matrix
 
 
-tokenizer = Tokenizer() 
-tokenizer.fit_on_texts(list())
-x_tr_seq    =   tokenizer.texts_to_sequences(x_train) 
-x_val_seq   =   tokenizer.texts_to_sequences(x_val)
-x_train    =   pad_sequences(x_tr_seq,  maxlen=max_len_text, padding='post')
-x_val   =   pad_sequences(x_val_seq, maxlen=max_len_text, padding='post')
-x_vocab   =  len(tokenizer.word_index) + 1
+tokenizer_inputs = Tokenizer()
+tokenizer_inputs.fit_on_texts(list(filtered['text_clean']))
+input_sequences = tokenizer_inputs.texts_to_sequences(filtered['text_clean'])
+word2idx_inputs = tokenizer_inputs.word_index
+num_words_input = len(tokenizer_inputs.word_index)+1
+
+tokenizer_outputs = Tokenizer(filters = '')
+tokenizer_outputs.fit_on_texts(list(filtered['summary_clean'])+list(filtered['summary_clean_input']))
+target_sequences = tokenizer_outputs.texts_to_sequences(filtered['summary_clean'])
+target_sequences_input = tokenizer_outputs.texts_to_sequences(filtered['summary_clean_input'])
+word2idx_outputs = tokenizer_outputs.word_index
+num_words_output = len(tokenizer_outputs.word_index)+1
+
+encoder_inputs = pad_sequences(input_sequences, maxlen = max_len_input )
+decoder_inputs = pad_sequences(target_sequences_input, maxlen = max_len_output, padding = 'post')
+decoder_targets = pad_sequences(target_sequences, maxlen = max_len_output, padding = 'post')
+
+
+input_embed = embeddings()
+input_embedding_weights = input_embed.get_embedding_matrix(num_words_input,tokenizer_inputs)
+
+output_embed = embeddings()
+output_embedding_weights = output_embed.get_embedding_matrix(num_words_output,tokenizer_outputs)
+
+
+encoder_embedding = Embedding()
+
+
+
 
 
 
