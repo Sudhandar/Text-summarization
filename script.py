@@ -11,7 +11,7 @@ from tensorflow.python.keras.models import Model
 from tensorflow.python.keras import backend as K
 from tensorflow.keras.callbacks import EarlyStopping
 
-
+latent_dim = 400
 
 data = pd.read_csv('Reviews.csv')
 columns = list(data.columns)
@@ -198,5 +198,32 @@ attn_dot = Dot(axes=1)
 
 def one_step_attention(h,st_1):
     
+    st_1 = attn_repeat(st_1)
+    x = attn_concat([h,st_1])
+    x = attn_dense1(x)
+    alphas = attn_dense2(x)
+    context = attn_dot([alphas,h])
+    
+    return context
+
+#def model(max_len_input,max_len_output,latent_dim,):
+    
+encoder_input_placeholder = Input(shape=(max_len_input,))
+x = encoder_embedding(encoder_input_placeholder)
+decoder_input_placeholder = Input(shape=(max_len_output,))
+decoder_inputs_x = decoder_embedding(decoder_input_placeholder)
+initial_s = Input(shape=(latent_dim,), name='s0')
+initial_c = Input(shape=(latent_dim,), name='c0')
+s = initial_s
+c = initial_c
+
+encoder = Bidirectional(LSTM(latent_dim, return_sequences = True))
+encoder_outputs = encoder(x)
+decoder_lstm = LSTM(latent_dim, return_state=True)
+decoder_dense = Dense(latent_dim, activation='softmax')
+
+
+
+
 
 
