@@ -6,7 +6,7 @@ from sklearn.model_selection import train_test_split
 import numpy as np
 from tensorflow.python.keras.preprocessing.text import Tokenizer
 from tensorflow.python.keras.preprocessing.sequence import pad_sequences
-from tensorflow.python.keras.layers import Concatenate, LSTM, Embedding, Input, Bidirectional, Dense
+from tensorflow.python.keras.layers import Concatenate, LSTM, Embedding, Input, Bidirectional, Dense, RepeatVector, Concatenate, Activation, Dot, Lambda
 from tensorflow.python.keras.models import Model
 from tensorflow.python.keras import backend as K
 from tensorflow.keras.callbacks import EarlyStopping
@@ -171,11 +171,32 @@ output_embed = embeddings()
 output_embedding_weights = output_embed.get_embedding_matrix(num_words_output,tokenizer_outputs)
 
 
-encoder_embedding = Embedding()
+encoder_embedding = Embedding(num_words_input,50,weights = [input_embedding_weights],input_length = max_len_input)
+
+decoder_embedding = Embedding(num_words_output,50,weights = [output_embedding_weights],input_length = max_len_output)
 
 
+decoder_targets_one_hot = np.zeros((filtered.shape[0], max_len_output, num_words_output),dtype='float32')
+
+for i, d in enumerate(decoder_targets):
+  for t, word in enumerate(d):
+    if word != 0:
+      decoder_targets_one_hot[i, t, word] = 1
+      
+def softmax_over_time(x):
+  assert(K.ndim(x) > 2)
+  e = K.exp(x - K.max(x, axis=1, keepdims=True))
+  s = K.sum(e, axis=1, keepdims=True)
+  return e / s
+
+attn_repeat = RepeatVector(max_len_input)
+attn_concat = Concatenate(axis=-1)
+attn_dense1 = Dense(10,activation='tanh')
+attn_dense2 = Dense(1, activation = softmax_over_time)
+attn_dot = Dot(axes=1)
 
 
-
+def one_step_attention(h,st_1):
+    
 
 
