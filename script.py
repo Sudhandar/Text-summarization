@@ -6,11 +6,12 @@ from sklearn.model_selection import train_test_split
 import numpy as np
 from tensorflow.python.keras.preprocessing.text import Tokenizer
 from tensorflow.python.keras.preprocessing.sequence import pad_sequences
-from tensorflow.python.keras.layers import Concatenate, LSTM, Embedding, Input, Bidirectional, Dense, RepeatVector, Concatenate, Activation, Dot, Lambda
+from tensorflow.python.keras.layers import LSTM, Embedding, Input, Bidirectional, Dense, RepeatVector, Concatenate, Activation, Dot, Lambda
 from tensorflow.python.keras.models import Model
 from tensorflow.python.keras import backend as K
 from tensorflow.keras.callbacks import EarlyStopping
-from keras.utils.vis_utils import plot_model
+
+
 
 
 latent_dim = 400
@@ -248,9 +249,26 @@ outputs = stacker(outputs)
 
 model = Model(inputs=[encoder_input_placeholder,decoder_input_placeholder,initial_s, initial_c,],outputs=outputs)
 
-model.summary()    
-dot_img_file = 'model_1.png'
-plot_model(model, to_file=dot_img_file, show_shapes=True, show_layer_names=True)
+def custom_loss(y_true, y_pred):
+  mask = K.cast(y_true > 0, dtype='float32')
+  out = mask * y_true * K.log(y_pred)
+  return -K.sum(out) / K.sum(mask)
 
 
+def acc(y_true, y_pred):
+  targ = K.argmax(y_true, axis=-1)
+  pred = K.argmax(y_pred, axis=-1)
+  correct = K.cast(K.equal(targ, pred), dtype='float32')
+  mask = K.cast(K.greater(targ, 0), dtype='float32')
+  n_correct = K.sum(mask * correct)
+  n_total = K.sum(mask)
+  return n_correct / n_total
 
+model.compile(optimizer='adam', loss=custom_loss, metrics=[acc])
+z = np.zeros((len(encoder_inputs), latent_dim))
+r = model.fit(
+  [encoder_inputs, decoder_inputs, z, z], decoder_targets_one_hot,
+  batch_size=BATCH_SIZE,
+  epochs=EPOCHS,
+  validation_split=0.2
+)
