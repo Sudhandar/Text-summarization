@@ -10,6 +10,8 @@ from tensorflow.python.keras.layers import Concatenate, LSTM, Embedding, Input, 
 from tensorflow.python.keras.models import Model
 from tensorflow.python.keras import backend as K
 from tensorflow.keras.callbacks import EarlyStopping
+from keras.utils.vis_utils import plot_model
+
 
 latent_dim = 400
 
@@ -212,6 +214,7 @@ encoder_input_placeholder = Input(shape=(max_len_input,))
 x = encoder_embedding(encoder_input_placeholder)
 decoder_input_placeholder = Input(shape=(max_len_output,))
 decoder_inputs_x = decoder_embedding(decoder_input_placeholder)
+
 initial_s = Input(shape=(latent_dim,), name='s0')
 initial_c = Input(shape=(latent_dim,), name='c0')
 s = initial_s
@@ -221,9 +224,33 @@ encoder = Bidirectional(LSTM(latent_dim, return_sequences = True))
 encoder_outputs = encoder(x)
 decoder_lstm = LSTM(latent_dim, return_state=True)
 decoder_dense = Dense(latent_dim, activation='softmax')
+context_last_word_concat_layer = Concatenate(axis=2)
 
 
+outputs = []
 
+for t in range(max_len_output):
+    context = one_step_attention(encoder_outputs,s)
+    selector = Lambda(lambda x: x[:, t:t+1])
+    xt = selector(decoder_inputs_x)
+    decoder_lstm_input = context_last_word_concat_layer([context, xt])
+    decoder_output, s, c = decoder_lstm(decoder_lstm_input, initial_state=[s, c])
+    decoder_output = decoder_dense(decoder_output)
+    outputs.append(decoder_output)
+
+def stack_and_transpose(x):
+  x = K.stack(x)
+  x = K.permute_dimensions(x, pattern=(1, 0, 2))
+  return x
+
+stacker = Lambda(stack_and_transpose)
+outputs = stacker(outputs)
+
+model = Model(inputs=[encoder_input_placeholder,decoder_input_placeholder,initial_s, initial_c,],outputs=outputs)
+
+model.summary()    
+dot_img_file = 'model_1.png'
+plot_model(model, to_file=dot_img_file, show_shapes=True, show_layer_names=True)
 
 
 
