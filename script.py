@@ -9,7 +9,8 @@ from tensorflow.python.keras.preprocessing.sequence import pad_sequences
 from tensorflow.python.keras.layers import LSTM, Embedding, Input, Bidirectional, Dense, RepeatVector, Concatenate, Activation, Dot, Lambda
 from tensorflow.python.keras.models import Model
 from tensorflow.python.keras import backend as K
-from tensorflow.keras.callbacks import EarlyStopping
+#from tensorflow.keras.callbacks import EarlyStopping
+import pickle
 
 
 
@@ -148,7 +149,7 @@ class embeddings():
                 
         return embedding_matrix
 
-
+filtered.to_csv('test.csv',index=False)
 tokenizer_inputs = Tokenizer()
 tokenizer_inputs.fit_on_texts(list(filtered['text_clean']))
 input_sequences = tokenizer_inputs.texts_to_sequences(filtered['text_clean'])
@@ -169,10 +170,15 @@ decoder_targets = pad_sequences(target_sequences, maxlen = max_len_output, paddi
 
 input_embed = embeddings()
 input_embedding_weights = input_embed.get_embedding_matrix(num_words_input,tokenizer_inputs)
+f = open("input_emb_weights.pkl","wb")
+pickle.dump(input_embedding_weights,f)
+f.close()
 
 output_embed = embeddings()
 output_embedding_weights = output_embed.get_embedding_matrix(num_words_output,tokenizer_outputs)
-
+f = open("output_emb_weights.pkl","wb")
+pickle.dump(output_embedding_weights,f)
+f.close()
 
 encoder_embedding = Embedding(num_words_input,50,weights = [input_embedding_weights],input_length = max_len_input)
 
@@ -224,7 +230,7 @@ c = initial_c
 encoder = Bidirectional(LSTM(latent_dim, return_sequences = True))
 encoder_outputs = encoder(x)
 decoder_lstm = LSTM(latent_dim, return_state=True)
-decoder_dense = Dense(latent_dim, activation='softmax')
+decoder_dense = Dense(num_words_output, activation='softmax')
 context_last_word_concat_layer = Concatenate(axis=2)
 
 
@@ -268,7 +274,7 @@ model.compile(optimizer='adam', loss=custom_loss, metrics=[acc])
 z = np.zeros((len(encoder_inputs), latent_dim))
 r = model.fit(
   [encoder_inputs, decoder_inputs, z, z], decoder_targets_one_hot,
-  batch_size=BATCH_SIZE,
-  epochs=EPOCHS,
+  batch_size=256,
+  epochs=4,
   validation_split=0.2
 )
