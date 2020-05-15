@@ -18,12 +18,14 @@ import pickle
 latent_dim = 400
 
 data = pd.read_csv('Reviews.csv')
+
 columns = list(data.columns)
 new_columns = []
 for col in columns:
     new_columns.append(col.lower())
     
 data.columns = new_columns
+
 
 data = data.drop_duplicates(subset='text')
 data = data.dropna()
@@ -125,7 +127,10 @@ max_len_output = 10
 
 data = data[(data['text_len']<=90)&(data['summary_len']<=10)]
 
-filtered = data[:5000]
+data = data[['text','summary','text_clean', 'summary_clean', 'summary_clean_input']].drop_duplicates()
+
+#data = data[:300000]
+#data.to_csv('cleaned_training_data.csv',index=False)
  
         
 class embeddings():
@@ -143,29 +148,32 @@ class embeddings():
         ''' Embdedding matrix for words used in the input'''
         embedding_matrix = np.zeros((vocab_size, 50))
         for word, i in tokenizer.word_index.items():
-        	embedding_vector = self._embeddings_index.get(word)
-        	if embedding_vector is not None:
-        		embedding_matrix[i] = embedding_vector
-                
+            if i< 25000:
+                embedding_vector = self._embeddings_index.get(word)
+                if embedding_vector is not None:
+                    embedding_matrix[i] = embedding_vector
+                    
         return embedding_matrix
 
-filtered.to_csv('test.csv',index=False)
-tokenizer_inputs = Tokenizer()
-tokenizer_inputs.fit_on_texts(list(filtered['text_clean']))
-input_sequences = tokenizer_inputs.texts_to_sequences(filtered['text_clean'])
+tokenizer_inputs = Tokenizer(num_words = 25000)
+tokenizer_inputs.fit_on_texts(list(data['text_clean']))
+input_sequences = tokenizer_inputs.texts_to_sequences(data['text_clean'])
 word2idx_inputs = tokenizer_inputs.word_index
-num_words_input = len(tokenizer_inputs.word_index)+1
+num_words_input = min(25000,len(tokenizer_inputs.word_index)+1)
 
-tokenizer_outputs = Tokenizer(filters = '')
-tokenizer_outputs.fit_on_texts(list(filtered['summary_clean'])+list(filtered['summary_clean_input']))
-target_sequences = tokenizer_outputs.texts_to_sequences(filtered['summary_clean'])
-target_sequences_input = tokenizer_outputs.texts_to_sequences(filtered['summary_clean_input'])
+tokenizer_outputs = Tokenizer(num_words = 25000,filters = '')
+tokenizer_outputs.fit_on_texts(list(data['summary_clean'])+list(data['summary_clean_input']))
+target_sequences = tokenizer_outputs.texts_to_sequences(data['summary_clean'])
+target_sequences_input = tokenizer_outputs.texts_to_sequences(data['summary_clean_input'])
 word2idx_outputs = tokenizer_outputs.word_index
-num_words_output = len(tokenizer_outputs.word_index)+1
+num_words_output = min(25000,len(tokenizer_outputs.word_index)+1)
 
 encoder_inputs = pad_sequences(input_sequences, maxlen = max_len_input )
 decoder_inputs = pad_sequences(target_sequences_input, maxlen = max_len_output, padding = 'post')
 decoder_targets = pad_sequences(target_sequences, maxlen = max_len_output, padding = 'post')
+np.save('encoder_inputs',encoder_inputs)
+np.save('decoder_inputs',decoder_inputs)
+np.save('decoder_targets',decoder_targets)
 
 
 input_embed = embeddings()
@@ -185,7 +193,7 @@ encoder_embedding = Embedding(num_words_input,50,weights = [input_embedding_weig
 decoder_embedding = Embedding(num_words_output,50,weights = [output_embedding_weights],input_length = max_len_output)
 
 
-decoder_targets_one_hot = np.zeros((filtered.shape[0], max_len_output, num_words_output),dtype='float32')
+decoder_targets_one_hot = np.zeros((data.shape[0], max_len_output, num_words_output),dtype='float32')
 
 for i, d in enumerate(decoder_targets):
   for t, word in enumerate(d):
@@ -255,22 +263,22 @@ outputs = stacker(outputs)
 
 model = Model(inputs=[encoder_input_placeholder,decoder_input_placeholder,initial_s, initial_c,],outputs=outputs)
 
-def custom_loss(y_true, y_pred):
-  mask = K.cast(y_true > 0, dtype='float32')
-  out = mask * y_true * K.log(y_pred)
-  return -K.sum(out) / K.sum(mask)
+#def custom_loss(y_true, y_pred):
+#  mask = K.cast(y_true > 0, dtype='float32')
+#  out = mask * y_true * K.log(y_pred)
+#  return -K.sum(out) / K.sum(mask)
+#
+#
+#def acc(y_true, y_pred):
+#  targ = K.argmax(y_true, axis=-1)
+#  pred = K.argmax(y_pred, axis=-1)
+#  correct = K.cast(K.equal(targ, pred), dtype='float32')
+#  mask = K.cast(K.greater(targ, 0), dtype='float32')
+#  n_correct = K.sum(mask * correct)
+#  n_total = K.sum(mask)
+#  return n_correct / n_total
 
-
-def acc(y_true, y_pred):
-  targ = K.argmax(y_true, axis=-1)
-  pred = K.argmax(y_pred, axis=-1)
-  correct = K.cast(K.equal(targ, pred), dtype='float32')
-  mask = K.cast(K.greater(targ, 0), dtype='float32')
-  n_correct = K.sum(mask * correct)
-  n_total = K.sum(mask)
-  return n_correct / n_total
-
-model.compile(optimizer='adam', loss=custom_loss, metrics=[acc])
+model.compile(optimizer='adam', loss='sparse_categorical_crossentropy')
 z = np.zeros((len(encoder_inputs), latent_dim))
 r = model.fit(
   [encoder_inputs, decoder_inputs, z, z], decoder_targets_one_hot,
@@ -278,5 +286,14 @@ r = model.fit(
   epochs=4,
   validation_split=0.2
 )
+encoder_model = Model(encoder_input_placeholder,encoder_outputs)
 
+encoder_outputs_as_input = Input(shape=(max_len_input,2*latent_dim))
+decoder_inputs_single = Input(shape=(1,))
+decoder_inputs_single_x = decoder_embedding(decoder_inputs_single)
+context = one_step_attention(encoder_outputs_as_input,initial_s)
+decoder_lstm_input = context_last_word_concat_layer([context,decoder_inputs_single_x])
+o,s,c = decoder_lstm(decoder_lstm_input, initial_state =[initial_s,initial_c])
+decoder_output = decoder_dense(o)
+decoder_model = Model(inputs = [decoder_inputs_single,encoder_outputs_as_input,initial_s,initial_c],outputs = [decoder_output,s,c])
 
